@@ -4,9 +4,9 @@ name: Crawl corpus to Hugging Face
 
 on:
   schedule:
-    - cron: "0 */8 * * *"        # UTC: 00:00, 08:00, 16:00 (cách nhau đúng 8 tiếng)
+    - cron: "0 */6 * * *"        # UTC: 00:00, 06:00, 12:00, 18:00 (cách nhau đúng 6 tiếng)
   workflow_dispatch:
-    inputs:
+    inputs:  
       mode:
         description: "crawl = chạy bình thường | seed = nạp state từ file đã crawl (thường không cần)"
         default: "crawl"
