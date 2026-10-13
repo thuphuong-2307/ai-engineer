@@ -37,6 +37,7 @@ from urllib.parse import urlparse
 import aiohttp
 import pandas as pd
 from bs4 import BeautifulSoup
+from bs4.dammit import EncodingDetector
 from huggingface_hub import CommitOperationAdd, HfApi, hf_hub_download, snapshot_download
 from pydantic import BaseModel, Field, ValidationError
 
@@ -50,7 +51,15 @@ def env(name, default):
 # ==========================================
 # 1. CẤU HÌNH (đổi qua biến môi trường trong file workflow)
 # ==========================================
-HF_TOKEN = os.environ.get("HF_TOKEN")
+HF_TOKEN = (os.environ.get("HF_TOKEN") or "").strip() or None   # secret thiếu/rỗng -> None
+
+
+def require_token():
+    """Ghi lên Hugging Face bắt buộc phải có token; báo lỗi rõ ràng thay vì lỗi header khó hiểu."""
+    if not HF_TOKEN:
+        sys.exit("[LỖI] HF_TOKEN đang trống. Vào repo GitHub này: Settings > Secrets and variables > Actions > "
+                 "New repository secret, tên đúng là HF_TOKEN, giá trị là token Hugging Face quyền Write. "
+                 "(Secret được lưu riêng cho từng repo GitHub.)")
 IN_REPO = env("HF_IN_REPO", "dhthufuong/ai-actions")          # nơi chứa danh sách URL
 IN_FILE = env("HF_IN_FILE", "missing_urls.csv")              # .jsonl / .csv / .parquet có cột id, url
 OUT_REPO = env("HF_OUT_REPO", "dhthufuong/ai-actions")        # nơi lưu kết quả
@@ -143,8 +152,27 @@ def language_of(domain: str) -> str:
 # ==========================================
 # 3. BÓC TÁCH NỘI DUNG (nhận bytes để tự nhận diện bảng mã, quan trọng với trang GBK)
 # ==========================================
+def decode_html(raw: bytes, domain: str) -> str:
+    """Giải mã HTML theo thứ tự: charset khai báo trong trang -> utf-8 -> gb18030 (chỉ trang tiếng Trung).
+    Chỉ khi cả ba đều lỗi mới thay ký tự hỏng bằng \ufffd."""
+    cands = []
+    declared = EncodingDetector.find_declared_encoding(raw, is_html=True)
+    if declared:
+        d = declared.lower()
+        cands.append("gb18030" if d in ("gb2312", "gbk") else d)   # gb18030 là tập cha của gb2312/gbk
+    cands.append("utf-8")
+    if language_of(domain) == "zh":
+        cands.append("gb18030")
+    for enc in cands:
+        try:
+            return raw.decode(enc).lstrip("\ufeff")
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
 def extract_content(raw: bytes, domain: str) -> tuple[str, str]:
-    soup = BeautifulSoup(raw, "html.parser")
+    soup = BeautifulSoup(decode_html(raw, domain), "html.parser")
 
     title = ""
     h1 = soup.find("h1")
@@ -266,6 +294,20 @@ def commit(ops, message) -> bool:
             print(f"  [commit lỗi lần {attempt + 1}] {type(e).__name__}: {str(e)[:150]}")
             time.sleep(5 * (attempt + 1))
     return False
+
+
+def check_write_access():
+    """Thử ghi 1 file nhỏ ngay khi bắt đầu; nếu token không có quyền ghi thì dừng sớm,
+    thay vì crawl hàng giờ rồi mới phát hiện không upload được."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    ok = commit([CommitOperationAdd(path_in_repo=f"logs/ping-s{SHARD}-{now:%Y%m%d-%H%M%S}.txt",
+                                    path_or_fileobj=b"ok\n")],
+                f"Kiểm tra quyền ghi (shard {SHARD})")
+    if not ok:
+        sys.exit(f"[LỖI] Không ghi được vào repo '{OUT_REPO}'. Token HF_TOKEN thiếu quyền Write với repo này "
+                 f"(lỗi 403 nghĩa là token chỉ đọc, hoặc token fine-grained chưa được cấp quyền ghi cho repo). "
+                 f"Tạo token mới có quyền Write rồi cập nhật secret HF_TOKEN trong GitHub.")
+    print("Đã kiểm tra: token có quyền ghi.")
 
 
 # ==========================================
@@ -427,6 +469,8 @@ async def reporter(R: Run, t0: float):
 
 
 async def crawl():
+    require_token()
+    check_write_access()
     t0 = time.time()
     df = load_input()
     print(f"Danh sách URL: {len(df):,} dòng")
@@ -451,17 +495,21 @@ async def crawl():
     connector = aiohttp.TCPConnector(limit=GLOBAL_LIMIT, limit_per_host=4, ttl_dns_cache=300, ssl=False)
     timeout = aiohttp.ClientTimeout(total=40, sock_read=20, sock_connect=10)
 
-    async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-        gsem = asyncio.Semaphore(GLOBAL_LIMIT)
-        rep = asyncio.create_task(reporter(R, t0))
-        tasks = []
-        for key, dq in by_site.items():
-            for _ in range(min(SITE_LIMITS.get(key, DEFAULT_SITE_LIMIT), len(dq))):
-                tasks.append(worker(key, dq, session, gsem, R))
-        await asyncio.gather(*tasks)
-        rep.cancel()
-
-    await flush(R, force=True)
+    rep = None
+    try:
+        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+            gsem = asyncio.Semaphore(GLOBAL_LIMIT)
+            rep = asyncio.create_task(reporter(R, t0))
+            tasks = []
+            for key, dq in by_site.items():
+                for _ in range(min(SITE_LIMITS.get(key, DEFAULT_SITE_LIMIT), len(dq))):
+                    tasks.append(worker(key, dq, session, gsem, R))
+            await asyncio.gather(*tasks)
+    finally:
+        # Chạy cả khi bị hủy giữa chừng (Cancel workflow / Ctrl+C): đẩy nốt phần dữ liệu còn trong bộ nhớ
+        if rep:
+            rep.cancel()
+        await flush(R, force=True)
 
     hours = (time.time() - t0) / 3600
     rate = R.n_ok / max(hours, 1e-9)
@@ -481,6 +529,7 @@ async def crawl():
 # 6. NẠP TRẠNG THÁI TỪ FILE ĐÃ CRAWL TRƯỚC ĐÓ (chạy 1 lần)
 # ==========================================
 def seed():
+    require_token()
     files = [f.strip() for f in env("SEED_FILES", "").split(",") if f.strip()]
     if not files:
         print("SEED_FILES đang trống nên không có gì để seed (file missing_urls.csv đã loại sẵn các URL đã crawl).")
