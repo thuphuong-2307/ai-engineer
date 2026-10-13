@@ -67,7 +67,7 @@ SEED_REPO = env("HF_SEED_REPO", OUT_REPO)                      # repo chứa cá
 
 SHARD = int(env("SHARD", "0"))                  # chạy song song nhiều job: mỗi site thuộc đúng 1 shard
 NUM_SHARDS = int(env("NUM_SHARDS", "1"))
-START_ROW = int(env("START_ROW", "500000"))     # bắt đầu từ dòng thứ START_ROW của file (đếm từ 0)
+START_ROW = int(env("START_ROW", "400000"))     # bắt đầu từ dòng thứ START_ROW của file (đếm từ 0)
 START_ID = int(env("START_ID", "0"))            # (tùy chọn) chỉ lấy id >= START_ID; 0 = không dùng
 RUN_SELECT = int(env("RUN_SELECT", "60000"))    # số URL chưa xử lý mỗi shard lấy cho 1 lượt (theo thứ tự file)
 MAX_MINUTES = float(env("MAX_MINUTES", "315"))  # thời gian crawl tối đa mỗi lượt (job tối đa 360 phút)
