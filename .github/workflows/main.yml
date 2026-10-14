@@ -1,0 +1,59 @@
+# Đặt file này tại: .github/workflows/main.yml (hoặc crawl.yml)
+# Cần Secret tên HF_TOKEN (token Hugging Face quyền Write): Settings > Secrets and variables > Actions
+name: Crawl corpus to Hugging Face
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"        # UTC: 00:00, 06:00, 12:00, 18:00 (cách nhau đúng 6 tiếng)
+  workflow_dispatch:
+    inputs:  
+      mode:
+        description: "crawl = chạy bình thường | seed = nạp state từ file đã crawl (thường không cần)"
+        default: "crawl"
+        type: choice
+        options: [crawl, seed]
+      start_row:
+        description: "Bắt đầu từ dòng thứ mấy của missing_urls.csv (đếm từ 0)"
+        default: "0"
+        type: string
+
+concurrency:
+  group: crawl-corpus            # không cho 2 lượt chạy chồng nhau
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350         # tối đa của GitHub-hosted runner là 360
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]         # 3 job chạy song song; mỗi site chỉ thuộc về 1 job. NUM_SHARDS tự lấy theo số phần tử
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_IN_REPO: dhthufuong/ai-actions-yn          # repo chứa danh sách URL
+      HF_IN_FILE: missing_urls.csv               # file danh sách URL (cột id, url)
+      HF_OUT_REPO: dhthufuong/ai-actions-yn         # repo lưu kết quả
+      START_ROW: ${{ github.event.inputs.start_row || '0' }}
+      RUN_SELECT: "60000"                        # số URL mỗi shard lấy cho 1 lượt (3 shard = 180.000 URL ứng viên)
+      SHARD: ${{ matrix.shard }}
+      NUM_SHARDS: ${{ strategy.job-total }}
+      MAX_MINUTES: "315"
+      UPLOAD_EVERY: "3000"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cài thư viện
+        run: pip install aiohttp beautifulsoup4 pydantic huggingface_hub pandas pyarrow
+
+      - name: Nạp state từ file đã crawl (chỉ khi chọn mode seed)
+        if: github.event.inputs.mode == 'seed'
+        run: python crawl_action.py --seed
+
+      - name: Crawl
+        if: github.event.inputs.mode != 'seed'
+        run: python crawl_action.py
