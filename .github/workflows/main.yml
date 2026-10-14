@@ -31,9 +31,9 @@ jobs:
         shard: [0, 1, 2]         # 3 job chạy song song; mỗi site chỉ thuộc về 1 job. NUM_SHARDS tự lấy theo số phần tử
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
-      HF_IN_REPO: dhthufuong/ai-actions          # repo chứa danh sách URL
+      HF_IN_REPO: dhthufuong/ai-actions-yn          # repo chứa danh sách URL
       HF_IN_FILE: missing_urls.csv               # file danh sách URL (cột id, url)
-      HF_OUT_REPO: dhthufuong/ai-actions         # repo lưu kết quả
+      HF_OUT_REPO: dhthufuong/ai-actions-yn         # repo lưu kết quả
       START_ROW: ${{ github.event.inputs.start_row || '0' }}
       RUN_SELECT: "60000"                        # số URL mỗi shard lấy cho 1 lượt (3 shard = 180.000 URL ứng viên)
       SHARD: ${{ matrix.shard }}
