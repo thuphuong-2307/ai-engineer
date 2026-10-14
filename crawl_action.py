@@ -60,9 +60,9 @@ def require_token():
         sys.exit("[LỖI] HF_TOKEN đang trống. Vào repo GitHub này: Settings > Secrets and variables > Actions > "
                  "New repository secret, tên đúng là HF_TOKEN, giá trị là token Hugging Face quyền Write. "
                  "(Secret được lưu riêng cho từng repo GitHub.)")
-IN_REPO = env("HF_IN_REPO", "dhthufuong/ai-actions")          # nơi chứa danh sách URL
+IN_REPO = env("HF_IN_REPO", "dhthufuong/ai-actions-yn")          # nơi chứa danh sách URL
 IN_FILE = env("HF_IN_FILE", "missing_urls.csv")              # .jsonl / .csv / .parquet có cột id, url
-OUT_REPO = env("HF_OUT_REPO", "dhthufuong/ai-actions")        # nơi lưu kết quả
+OUT_REPO = env("HF_OUT_REPO", "dhthufuong/ai-actions-yn")        # nơi lưu kết quả
 SEED_REPO = env("HF_SEED_REPO", OUT_REPO)                      # repo chứa các file đã crawl trước đó (chỉ dùng cho --seed)
 
 SHARD = int(env("SHARD", "0"))                  # chạy song song nhiều job: mỗi site thuộc đúng 1 shard
