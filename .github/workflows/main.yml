@@ -14,7 +14,7 @@ on:
         options: [crawl, seed]
       start_row:
         description: "Bắt đầu từ dòng thứ mấy của missing_urls.csv (đếm từ 0)"
-        default: "400000"
+        default: "0"
         type: string
 
 concurrency:
@@ -34,7 +34,7 @@ jobs:
       HF_IN_REPO: dhthufuong/ai-actions          # repo chứa danh sách URL
       HF_IN_FILE: missing_urls.csv               # file danh sách URL (cột id, url)
       HF_OUT_REPO: dhthufuong/ai-actions         # repo lưu kết quả
-      START_ROW: ${{ github.event.inputs.start_row || '400000' }}
+      START_ROW: ${{ github.event.inputs.start_row || '0' }}
       RUN_SELECT: "60000"                        # số URL mỗi shard lấy cho 1 lượt (3 shard = 180.000 URL ứng viên)
       SHARD: ${{ matrix.shard }}
       NUM_SHARDS: ${{ strategy.job-total }}
